@@ -1,3 +1,4 @@
+#src/kpis.py
 from __future__ import annotations
 
 import pandas as pd
@@ -79,3 +80,42 @@ def bs_level_gt_vs_pred(df_bs: pd.DataFrame, state_col: str = "State") -> dict:
     fn = int(((~by_bs["pred_sleep"]) & (by_bs["gt_sleep_any"])).sum())
     tn = int(((~by_bs["pred_sleep"]) & (~by_bs["gt_sleep_any"])).sum())
     return {"tp": tp, "fp": fp, "fn": fn, "tn": tn}
+
+
+def calculate_risk_metrics(df: pd.DataFrame, prb_threshold: float = 20.0) -> dict:
+    """
+    Risk Proxy:
+    An interval is 'High Risk' if the Controller is in ECO mode 
+    BUT the traffic load (PRB) is > prb_threshold.
+    """
+    if "State" not in df.columns:
+        return {}
+
+    prb_col = resolve_col(df, "prb")
+    
+    # Filter valid rows
+    valid = df.dropna(subset=["State", prb_col]).copy()
+    valid["prb_val"] = pd.to_numeric(valid[prb_col], errors="coerce")
+    
+    total_intervals = len(valid)
+    if total_intervals == 0:
+        return {
+            "risk_intervals": 0,
+            "risk_percent_total": 0.0,
+            "risk_percent_eco": 0.0,
+            "eco_intervals": 0
+        }
+
+    is_eco = valid["State"] == "ECO"
+    is_high_load = valid["prb_val"] > prb_threshold
+    
+    risk_mask = is_eco & is_high_load
+    n_risk = risk_mask.sum()
+    n_eco = is_eco.sum()
+
+    return {
+        "risk_intervals": int(n_risk),
+        "risk_percent_total": 100.0 * float(n_risk) / total_intervals,
+        "risk_percent_eco": (100.0 * float(n_risk) / n_eco) if n_eco > 0 else 0.0,
+        "eco_intervals": int(n_eco)
+    }
